@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Learning Tutor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>E-Learning Tutor</h1>
+        <div id="chat">
+            <div id="messages"></div>
+            <div id="loader" class="loader"></div>
+            <input type="text" id="question" placeholder="Ask me anything...">
+            <button id="ask-btn">Ask</button>
+        </div>
+        <div id="recommendations">
+            <h2>Recommended Topics</h2>
+            <ul id="recommendations-list"></ul>
+        </div>
+        <div id="quiz">
+            <h2>Quiz</h2>
+            <button id="generate-quiz-btn">Generate Quiz</button>
+            <div id="quiz-questions"></div>
+            <button id="submit-quiz-btn" style="display: none;">Submit Quiz</button>
+        </div>
+        <div id="progress-dashboard">
+            <h2>Your Progress</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Topic</th>
+                        <th>Number of Questions</th>
+                        <th>Latest Quiz Score</th>
+                        <th>Last Accessed</th>
+                    </tr>
+                </thead>
+                <tbody id="progress-body">
+                    {% for progress in progress_data %}
+                    <tr>
+                        <td>{{ progress.topic }}</td>
+                        <td>{{ progress.num_questions }}</td>
+                        <td>
+                            {% if progress.quiz_scores %}
+                                {{ progress.quiz_scores[-1] }}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>{{ progress.last_accessed.strftime('%Y-%m-%d %H:%M') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Quiz Modal -->
+    <div id="quiz-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Generate Quiz</h2>
+            <input type="text" id="quiz-topic" placeholder="Enter a topic for the quiz...">
+            <button id="submit-quiz-topic">Generate</button>
+            <div id="quiz-loader" class="loader"></div> <!-- Quiz Loader -->
+        </div>
+    </div>
+
+    <!-- Quiz Submission Modal -->
+    <div id="quiz-submission-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" id="close-submission-modal">&times;</span>
+            <h2>Quiz Submitted!</h2>
+            <p id="quiz-submission-message"></p>
+        </div>
+    </div>
+
+    <script>
+        let quizData = []; // Store the quiz data
+        let quizTopic = ""; // Store the quiz topic
+
+        // Get the modal and buttons
+        const modal = document.getElementById("quiz-modal");
+        const generateQuizBtn = document.getElementById("generate-quiz-btn");
+        const closeModal = document.getElementsByClassName("close")[0];
+        const submitQuizTopic = document.getElementById("submit-quiz-topic");
+
+        // Open the modal when "Generate Quiz" is clicked
+        generateQuizBtn.onclick = () => {
+            modal.style.display = "block";
+        };
+
+        // Close the modal when the close button is clicked
+        closeModal.onclick = () => {
+            modal.style.display = "none";
+        };
+
+        // Close the modal when clicking outside of it
+        window.onclick = (event) => {
+            if (event.target === modal) {
+                modal.style.display = "none";
+            }
+        };
+
+        // Handle quiz topic submission
+        submitQuizTopic.onclick = async () => {
+            quizTopic = document.getElementById("quiz-topic").value;
+            if (!quizTopic) return;
+
+            const quizLoader = document.getElementById("quiz-loader");
+            const submitQuizBtn = document.getElementById("submit-quiz-topic");
+
+            // Disable the button and show the loader
+            submitQuizBtn.disabled = true;
+            quizLoader.style.display = "block";
+
+            try {
+                const response = await fetch("/generate-quiz", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ topic: quizTopic })
+                });
+
+                const data = await response.json();
+                if (data.quiz) {
+                    quizData = data.quiz; // Store the quiz data
+                    const quizQuestionsDiv = document.getElementById("quiz-questions");
+                    quizQuestionsDiv.innerHTML = "";
+
+                    // Render each question
+                    quizData.forEach((question, index) => {
+                        const questionDiv = document.createElement("div");
+                        questionDiv.innerHTML = `
+                            <p><strong>Question ${index + 1}:</strong> ${question.question}</p>
+                            <form id="question-${index}">
+                                ${question.options.map(option => `
+                                    <label>
+                                        <input type="radio" name="answer" value="${option[0]}"> ${option}
+                                    </label><br>
+                                `).join("")}
+                            </form>
+                            <p id="correct-answer-${index}" style="display: none;"><strong>Correct Answer:</strong> ${question.correct_answer}</p>
+                        `;
+                        quizQuestionsDiv.appendChild(questionDiv);
+
+                        // Add event listener to show correct answer when an option is selected
+                        const form = document.getElementById(`question-${index}`);
+                        form.addEventListener("change", () => {
+                            const correctAnswerDiv = document.getElementById(`correct-answer-${index}`);
+                            correctAnswerDiv.style.display = "block";
+                        });
+                    });
+
+                    // Show the submit button
+                    document.getElementById("submit-quiz-btn").style.display = "block";
+                }
+            } catch (error) {
+                console.error("Error:", error);
+            } finally {
+                // Re-enable the button, hide the loader, and clear the input field
+                submitQuizBtn.disabled = false;
+                quizLoader.style.display = "none";
+                document.getElementById("quiz-topic").value = ""; // Clear the input field
+                modal.style.display = "none"; // Close the modal
+            }
+        };
+
+
+            // Handle quiz submission
+                document.getElementById("submit-quiz-btn").addEventListener("click", async () => {
+                    const userAnswers = [];
+                    let score = 0;
+
+                    // Collect user answers
+                    quizData.forEach((question, index) => {
+                        const form = document.getElementById(`question-${index}`);
+                        const selectedAnswer = form.querySelector("input[name='answer']:checked");
+                        if (selectedAnswer) {
+                            userAnswers.push({
+                                question: question.question,
+                                user_answer: selectedAnswer.value,
+                                correct_answer: question.correct_answer
+                            });
+                            if (selectedAnswer.value === question.correct_answer) {
+                                score += 1; // Increment score for correct answers
+                            }
+                        }
+                    });
+
+                    // Send answers to the server for evaluation
+                    const response = await fetch("/submit-quiz", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            user_id: "user_123", // Replace with actual user ID
+                            topic: quizTopic, // Use the stored quiz topic
+                            user_answers: userAnswers,
+                            score: score,
+                            num_questions: quizData.length // Number of questions in the quiz
+                        })
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        // Show the quiz submission pop-up
+                        const submissionModal = document.getElementById("quiz-submission-modal");
+                        const submissionMessage = document.getElementById("quiz-submission-message");
+                        submissionMessage.textContent = `You scored ${score}/${quizData.length} on the quiz about ${result.topic}.`;
+                        submissionModal.style.display = "block";
+
+                        // Clear the quiz
+                        document.getElementById("quiz-questions").innerHTML = "";
+                        document.getElementById("submit-quiz-btn").style.display = "none";
+
+                        // Update progress dashboard in real-time
+                        const progressBody = document.getElementById("progress-body");
+                        const newRow = document.createElement("tr");
+                        newRow.innerHTML = `
+                            <td>${result.topic}</td>
+                            <td>${result.num_questions}</td>
+                            <td>${result.quiz_score}</td>
+                            <td>${result.last_accessed}</td>
+                        `;
+                        progressBody.appendChild(newRow);
+                    }
+                });
+
+        // Close the quiz submission modal
+        document.getElementById("close-submission-modal").onclick = () => {
+            document.getElementById("quiz-submission-modal").style.display = "none";
+        };
+
+        // Handle Q&A
+        document.getElementById("ask-btn").addEventListener("click", async () => {
+            const question = document.getElementById("question").value;
+            if (!question) return;
+
+            const askBtn = document.getElementById("ask-btn");
+            const loader = document.getElementById("loader");
+
+            // Disable the button and show the loader
+            askBtn.disabled = true;
+            loader.style.display = "block";
+
+            try {
+                const response = await fetch("/ask", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ question })
+                });
+
+                const data = await response.json();
+                if (data.answer) {
+                    const messagesDiv = document.getElementById("messages");
+                    messagesDiv.innerHTML += `<p><strong>You:</strong> ${question}</p>`;
+                    messagesDiv.innerHTML += `<p><strong>Tutor:</strong> ${data.answer}</p>`;
+                    document.getElementById("question").value = "";
+
+                    // Display recommendations
+                    const recommendationsList = document.getElementById("recommendations-list");
+                    recommendationsList.innerHTML = data.recommendations.map(topic => `<li>${topic}</li>`).join("");
+                }
+            } catch (error) {
+                console.error("Error:", error);
+            } finally {
+                // Re-enable the button and hide the loader
+                askBtn.disabled = false;
+                loader.style.display = "none";
+            }
+        });
+    </script>
+</body>
+</html>
